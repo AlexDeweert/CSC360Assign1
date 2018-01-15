@@ -9,11 +9,14 @@
 
 /*Prototypes*/
 char* getWorkingDirectory();
-void parseInput(char*);
+void parseInput(char*,char***,size_t*);
+void executeCommand(char**);
 
 int main()
 {
 	char* prompt;
+	char** args;
+	size_t argc;
 
 	int bailout = 0;
 	while (!bailout) {
@@ -21,11 +24,23 @@ int main()
 		char* input = readline(prompt);
 		/* Note that readline strips away the final \n */
 
-		if (!strcmp(input, "bye")) {
+		if (!strcmp(input, "logout")) {
 			bailout = 1;
 		}
 		else {
-			parseInput(input);
+			parseInput(input,&args,&argc);
+			executeCommand( args );
+
+			/*REFACTOR THIS LATER but useful for the moment*/
+			int i;
+			// for( i = 0; i < argc; i++ ) {
+			// 	printf("[LOG] args at %d is: %s with size %zu\n", i, args[i], strlen( args[i]));
+			// }
+			/*Free the args (might do in fn later)*/
+			for( i = 0; i < argc; i++) {
+				free( args[i] );
+			}
+			free( args );
 			//printf("%s: command not found\n", input);
 		}
 		
@@ -33,23 +48,63 @@ int main()
 		free(prompt);
 		
 	}
-	//free(ptr_buf);
-	printf("Bye Bye\n");
+	printf("Session closed\n");
+}
+
+void executeCommand( char** args ) {
+
+	pid_t child_pid;
+	int status;//of child process
+		child_pid = fork();
+	if( child_pid == -1 ) { 
+		printf("failed to fork\n"); 
+		exit(EXIT_FAILURE);
+	}
+	if ( child_pid == 0 ) { //Child executes this
+		printf("Forked, attempting to call execvp()...\n");
+		execvp( args[0], args );
+		/*execvp failed if this point is reached*/
+			printf("Unknown command or args** is an invalid format...\n");
+			exit(EXIT_SUCCESS);
+	}
+	
+	else { //Parent executs this
+		printf("PARENT process is running...\n");
+
+		/*Example from man pages for "wait"(if this works)*/
+		do {
+			pid_t w = wait(&status);
+			if (w == -1) {
+               perror("waitpid");
+               exit(EXIT_FAILURE);
+           }
+           if (WIFEXITED(status)) {
+               printf("exited, status=%d\n", WEXITSTATUS(status));
+               //exit(EXIT_SUCCESS);
+           } 
+	} while ( !WIFEXITED(status) );//&& !WIFSIGNALED(status) );
+	
+	} 
 }
 
 /* parseIput( char* )
 *  separating command line input into usable arguments
 *  likely to be fed into execvp() system call
+*  Note on the triple pointers, did it for pass by reference
+*  behavior. There was likely better way to do this and it might be
+*  improved in future if there's time.
 */
-void parseInput( char* input ) {
+void parseInput( char* input, char*** args, size_t* argc ) {
 
+	/*init args to hold one string*/
+	(*args) = (char**)malloc( sizeof(char*) );
 	/*vars*/
-	size_t size_args = 1;
+	(*argc) = 1;
 	int num_tokens = 0;
 
 	/*Read the string and tokenize it into individual words delimited by spaces*/
 	char* token;
-	char** args = (char**)malloc( sizeof(char*)*size_args );
+	//char** args = (char**)malloc( sizeof(char*)*(*argc) );
 
 	const char* delimeter = " ";
 
@@ -57,48 +112,27 @@ void parseInput( char* input ) {
 	token = strtok( input, delimeter );
 	/*Remaining tokens*/
 	while( token != NULL ) {
-		printf( "TOKEN IS: %s\n", token );
+		//printf( "TOKEN IS: %s\n", token );
 
 		//Put each token into the args array
 		//Grow args if tokens will exceed the length of array
-		if( (num_tokens+1) > size_args ) {
-			printf("num_tokens exceeded the size of the argument array\n");
-			size_args++;
-			printf("size args: %zu\n", size_args);
-			args = (char**)realloc( args, sizeof(char*)*size_args );
+		if( (num_tokens+1) > (*argc) ) {
+			//printf("num_tokens exceeded the size of the argument array\n");
+			(*argc)++;
+			//printf("size args: %zu\n", (*argc));
+			(*args) = (char**)realloc( (*args), sizeof(char*)*(*argc) );
 		}
-		printf("attempting to malloc\n");
-		args[num_tokens] = (char*)malloc( sizeof(char)*(strlen(token)+1) );
-		strncpy( args[num_tokens], token, strlen(token)+1 );
+		//printf("attempting to malloc\n");
+		(*args)[num_tokens] = (char*)malloc( sizeof(char)*(strlen(token)+1) );
+		strncpy( (*args)[num_tokens], token, strlen(token)+1 );
 		num_tokens++;
 		token = strtok( NULL, delimeter );
 	}
-	size_args++;
+	(*argc)++;
 	/*Try to null terminate the array of strings*/
-	args = (char**)realloc( args, sizeof(NULL)*(size_args) );
-	printf("Size of null is: %zu, size of char* is: %zu, num_tokens: %d, size_args: %zu\n", sizeof(NULL), sizeof(char*), num_tokens, size_args);
-	args[size_args-1] = NULL;
-
-	int i;
-	for( i = 0; i < num_tokens; i++ ) {
-		printf("args at %d is: %s with size %zu\n", i, args[i], strlen( args[i]));
-	}
-
-	//Determine if the very first word is a "valid" command - ie will be args[0]
-	if( strcmp( args[0], "ls" ) == 0) {
-		printf("Got command \"ls\"\n");
-	}
-
-	
-
-	//args[1...n-1] will be the options
-
-	//args[n] = NULL to indicate end of args
-
-	for( i = 0; i < size_args; i++) {
-		free( args[i] );
-	}
-	free( args );
+	(*args) = (char**)realloc( (*args), sizeof(NULL)*((*argc)) );
+	printf("num_tokens: %d, (*argc): %zu\n", num_tokens, (*argc));
+	(*args)[(*argc)-1] = NULL;
 }
 
 
