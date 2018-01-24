@@ -10,7 +10,7 @@ int main(int argc, char* argv[])
 	} else {
 		const char* tag = argv[1];
 		int interval = atoi(argv[2]);
-		while(i<=10) {
+		while(i<5) {
 			i++;
 			printf("tag: %s, tick:%d\n", tag,i);
 			sleep(interval);

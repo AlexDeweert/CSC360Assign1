@@ -30,7 +30,6 @@ struct LinkedList {
 /*Globals*/
 node root;
 int listCount = 0;
-pid_t simPID = 1;
 
 int main()
 {
@@ -39,14 +38,6 @@ int main()
 	size_t argc;
 	int bg_flag = 0;
 	int running;
-	
-	/*Example struct init*/
-	// bg_process bgp1;
-	// bgp1.pid = (pid_t)5555;
-	// bgp1.command[0] = '\0';
-	// snprintf( bgp1.command, 1024, "command string" );
-	// bgp1.next = NULL;
-
 
 	do {
 		prompt = getWorkingDirectory(0);
@@ -94,7 +85,6 @@ int executeCommand( char** args, int* bg_flag ) {
 
 	else if( !strcmp( args[0], "bglist") ) {
 		printList();
-		//addToList( args[0], (pid_t)simPID++ );
 		return 1;
 	}
 
@@ -105,48 +95,41 @@ int executeCommand( char** args, int* bg_flag ) {
 		int status;//of child process
 		child_pid = fork();
 
-		if ( child_pid == 0 ) { //Child executes this
+		/*CHILD execution*/
+		if ( child_pid == 0 ) {
 			execvp( args[0], args );
 			/*PROGRAM IS OVERWRITTEN AFTER THIS POINT*/
 			/*execvp failed if the following message is printed*/
 			printf("Unknown Command (args** invalid).\n");
 			exit(EXIT_SUCCESS);
 		}
+		/*Fork failed*/
 		else if( child_pid == -1 ) { 
 			printf("Failed to fork\n"); 
 			exit(EXIT_FAILURE);
 		}
-		else { //Parent executes this
+		/*PARENT execution*/
+		else {
 			
 			//TODO Fix this - figure out background process loop check
 			//Only add to bg processes if bg is used
-			if( (*bg_flag) ) { addToList(args[0],child_pid); }
-
-			do {
-				//If we're running a background process...
-				if( (*bg_flag) ) {
-					pid_t w = waitpid(child_pid, &status, WNOHANG);
-					//printf("WNOHANG: %d\n", (int)WNOHANG);
-					if( w == 0 ) {
-						printf("Waitpid returned 0 \n");
-					}
-					else if( w == -1 ) {
-						printf("Error waitpid returned -1\n");
-					}
-					else {
-						printf("Waitpid returned %d\n", (int)w);
-					}
-
-					//while( w != child_pid ) printf("waitpid returned: %d\n", (int)w);
+			//&&If we're running a background process...
+			pid_t w = waitpid(0, &status, WNOHANG);
+			if( (*bg_flag) ) { 
+				addToList(args[0],child_pid);
+				printList();
+				while( w > 0 ) {
+					w = waitpid(0, &status, WNOHANG);
 				}
-				//else we're running a normal process where we just wait
-				else {
-					pid_t w = waitpid(child_pid, &status, WUNTRACED);
-					//printf("WUNTRACED: %d\n", (int)WUNTRACED);
-					//printf("waitpid returned: %d\n", (int)w);
-				}
-				
-			} while( (!WIFEXITED(status)) && !WIFSIGNALED(status));
+			}
+			else {
+				do {
+					//else we're running a normal process where we just wait
+					w = waitpid(child_pid, &status, WUNTRACED);
+						//printf("WUNTRACED: %d\n", (int)WUNTRACED);
+						//printf("waitpid returned: %d\n", (int)w);
+				} while( (!WIFEXITED(status)) && !WIFSIGNALED(status));	
+			}
 		}
 		return 1;
 	}
@@ -176,7 +159,7 @@ void parseInput( char* input, char*** args, size_t* argc, int* bg_flag ) {
 	token = strtok( input, delimeter );
 	/*Remaining tokens*/
 	while( token != NULL ) {
-		printf( "TOKEN IS: %s\n", token );
+		//printf( "TOKEN IS: %s\n", token );
 
 		//Test if very first token is bg so we can ignore it and set the bg_flag
 		//bg_flag will cause executeCommand() to run a child process in the background
