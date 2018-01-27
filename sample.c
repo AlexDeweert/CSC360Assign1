@@ -19,6 +19,7 @@ void addToList( char*, pid_t);
 typedef struct LinkedList *node;
 node makeNode();
 void printList();
+void checkBackgroundProcesses();
 
 /*Structs*/
 struct LinkedList {
@@ -37,16 +38,16 @@ int main()
 	char** args;
 	size_t argc;
 	int bg_flag = 0;
-	int running;
+	int running = 1;
 
 	do {
+		checkBackgroundProcesses();
 		prompt = getWorkingDirectory(0);
 		char* input = readline(prompt);
 		bg_flag = 0;
 		if( strcmp(input,"") ) {
 			parseInput(input,&args,&argc,&bg_flag);
 			running = executeCommand(args,&bg_flag);
-			//else { running = executeBackgroundCommand(args); }
 
 			int i;
 			for( i = 0; i < argc; i++) {
@@ -65,9 +66,56 @@ int main()
 	printf("Session closed\n");
 }
 
-int executeCommand( char** args, int* bg_flag ) {
+void checkBackgroundProcesses() {
 	pid_t w;
+	pid_t child_pid;
+	int status;//of child process
+	//BACKGROUND PROCESSES (loop checking to remove PID's if terminated)
+	if( listCount > 0 ) { //If we had added a "bg" flag to command list count will be > 0
+		w = waitpid(0, NULL, WNOHANG); //Waitpid for termination of bg running child
+		//printf("w (BG execc) is: %d\n",(int)w);
+		while( w > 0 ) {
+			if( w > 0 ) {
+				if ( (*root).pid == w ) { //pid is root
+					printf("rootPID: %d TERMINATED\n", (int)(*root).pid); 
+					root = (*root).next; listCount--;
+				}
+				//pid is not root, could be interior or tail
+				else {
+					node cur;
+					node temp;
+					cur = root;
+					//find pid in list
+					while( (*cur).pid != w ) {
+						temp = cur;
+						cur = (*cur).next;
+					}
+					//If the next element is NULL we're at tail
+					//so delete the tail
+					if( (*cur).next == NULL ) {
+						free((*temp).next);
+						(*temp).next = NULL;
+					}
+					//else it's an interior element
+					// before: [cur] -> [next] -> NULL
+					// after:  [cur] -----------> NULL
+					else {
+						(*cur).next = (*(*cur).next).next;	
+					}
+					listCount--;	
+				}
+			}
+			w = waitpid(0, NULL, WNOHANG);
+		}
+	}
+}
+
+int executeCommand( char** args, int* bg_flag ) {
+	
 	pid_t x;
+	pid_t child_pid;
+	int runningBinary = 0;
+	int status;//of child process
 	/*Want to run chdir() since cd is not in bin*/
 	if( !strcmp( args[0], "cd" ) ) { //default cd with no args is go home
 		char* cwd = getWorkingDirectory(1);
@@ -78,7 +126,7 @@ int executeCommand( char** args, int* bg_flag ) {
 			chdir(args[1]);
 		}
 		free(cwd);
-		return 1;
+		//return 1;
 	}
 
 	else if( !strcmp( args[0], "exit") ) {
@@ -87,14 +135,11 @@ int executeCommand( char** args, int* bg_flag ) {
 
 	else if( !strcmp( args[0], "bglist") ) {
 		printList();
-		return 1;
+		//return 1;
 	}
 
-	/*Use a program in binaries*/
-	else {
-		pid_t child_pid;
-		//pid_t w;
-		int status;//of child process
+	else { //otherwise were executing a binary
+		runningBinary = 1;
 		child_pid = fork();
 
 
@@ -112,55 +157,22 @@ int executeCommand( char** args, int* bg_flag ) {
 			printf("Failed to fork\n"); 
 			exit(EXIT_FAILURE);
 		}
-
-
-		/*PARENT execution*/
-		else {
-			
-			//Add child process to bg list only if bg_flag true
-			if( (*bg_flag) ) addToList(args[0],child_pid);
-
-			//NON-BG PROCESSES (will block so we don't need to add to BG list)
-			else {
-				do {
-					//else we're running a normal process where we just wait
-					x = waitpid(child_pid, &status, WUNTRACED);
-					printf("x (nonBG) is: %d\n",(int)x);
-						//printf("WUNTRACED: %d\n", (int)WUNTRACED);
-						//printf("waitpid returned: %d\n", (int)w);
-				} while( (!WIFEXITED(status)) && !WIFSIGNALED(status));	
-			}
-
-			//BACKGROUND PROCESSES (loop checking to remove PID's if terminated)
-			if( listCount > 0 ) { //If we had added a "bg" flag to command list count will be > 0
-				w = waitpid(0, &status, WNOHANG); //Waitpid for termination of bg running child
-				printf("w (BG execc) is: %d\n",(int)w);
-				while( w > 0 ) {
-					if( w > 0 ) {
-						if ( (*root).pid == w ) { 
-							printf("rootPID: %d TERMINATED\n", (int)(*root).pid); 
-							root = (*root).next; listCount--;
-						}
-						else {
-							node cur;
-							cur = root;
-							while( (*cur).next != NULL && (*cur).pid != w) {
-								cur = (*cur).next;
-							}
-							printf("rootPID: %d TERMINATED\n", (int)(*cur).pid);
-							(*cur).next = (*(*cur).next).next;
-							listCount--;
-						}
-					}
-					w = waitpid(0, &status, WNOHANG);	
-				}
-			}
-
-		} //END PARENT
-
-
-		return 1;
 	}
+			
+	//Add child process to bg list only if bg_flag true
+	if( (*bg_flag) && runningBinary ) addToList(args[0],child_pid);
+
+	//NON-BG PROCESSES (will block so we don't need to add to BG list)
+	else if (runningBinary) {
+		do {
+			//else we're running a normal process where we just wait
+			x = waitpid(child_pid, &status, WUNTRACED);
+			//printf("x (nonBG) is: %d\n",(int)x);
+			//printf("WUNTRACED: %d\n", (int)WUNTRACED);
+			//printf("waitpid returned: %d\n", (int)w);
+		} while( (!WIFEXITED(status)) && !WIFSIGNALED(status));	
+	}
+	return 1;
 }
 
 /* parseIput( char* )
