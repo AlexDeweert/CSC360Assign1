@@ -1,7 +1,13 @@
-//TODO BGProcess loop check
-//linked list find && delete
+/*
+	CSC 360 ASSIGNMENT 1
+	Simple Shell Interpreter
+	Prof. J. PAN
+	UVIC Winter 2018
 
-
+	Student: Alexander (Lee) DEWEERT
+	ID: V00855767
+	2018-Jan-29
+*/
 #include <stdio.h>
 #include <stdlib.h>
 #include <readline/readline.h>
@@ -15,9 +21,8 @@
 char* getWorkingDirectory(int);
 void parseInput(char*,char***,size_t*,int*);
 int executeCommand(char**,int*);
-void addToList( char*, pid_t);
+void addToList( char*, char*, pid_t);
 typedef struct LinkedList *node;
-node makeNode();
 void printList();
 void checkBackgroundProcesses();
 
@@ -25,6 +30,9 @@ void checkBackgroundProcesses();
 struct LinkedList {
 	pid_t pid;
 	char command[1024];
+	char arg1[1024];
+	char arg2[1024];
+	char arg3[1024];
 	struct LinkedList* next;
 };
 
@@ -32,6 +40,11 @@ struct LinkedList {
 node root;
 int listCount = 0;
 
+/* Main()
+*  Runs an infinite loop asking user for input
+*  unless the program has a critical error or the user
+*  types "exit" to leave.
+*/
 int main()
 {
 	char* prompt;
@@ -40,15 +53,20 @@ int main()
 	int bg_flag = 0;
 	int running = 1;
 
-	do {
+	printf("\nWelcome to Simple Shell Interpreter (SSI) v1.0\n");
+	printf("Valid commands: [cd] [cd ..] [cd ~] [any binary in /bin/ with unlimited arguments]\n");
+	printf("                [exit] [bglist - use \"bg program arg1 arg2 ... argN\"]\n\n");
+
+	do { //run these commands in a loop while...
 		checkBackgroundProcesses();
 		prompt = getWorkingDirectory(0);
 		char* input = readline(prompt);
-		bg_flag = 0;
-		if( strcmp(input,"") ) {
+		bg_flag = 0; //
+		if( strcmp(input,"") ) { //If input not empty string
 			parseInput(input,&args,&argc,&bg_flag);
 			running = executeCommand(args,&bg_flag);
 
+			//Free all resources
 			int i;
 			for( i = 0; i < argc; i++) {
 				free( args[i] );
@@ -56,29 +74,34 @@ int main()
 			free(args);
 			free(input);
 			free(prompt);
-		}
-		else {
+		} 
+		else { //input was empty string
 			free(input);
 			free(prompt);
 		}
-	} while( running );
+	} while( running ); //...while running is true (returned by executeCommand)
 
 	printf("Session closed\n");
 }
 
+/* checkBackgroundProcesses()
+*  here we check the bglist for any nonterminated
+*  processes. This is done before every input prompt.
+*/
 void checkBackgroundProcesses() {
 	pid_t w;
-	pid_t child_pid;
-	int status;//of child process
 	//BACKGROUND PROCESSES (loop checking to remove PID's if terminated)
 	if( listCount > 0 ) { //If we had added a "bg" flag to command list count will be > 0
 		w = waitpid(0, NULL, WNOHANG); //Waitpid for termination of bg running child
-		//printf("w (BG execc) is: %d\n",(int)w);
 		while( w > 0 ) {
 			if( w > 0 ) {
 				if ( (*root).pid == w ) { //pid is root
-					printf("rootPID: %d TERMINATED\n", (int)(*root).pid); 
-					root = (*root).next; listCount--;
+					if( strlen( (*root).arg1) != 0 )
+						printf("%d: %s %s has terminated.\n", (int)(*root).pid, (*root).command, (*root).arg1); 
+					else
+						printf("%d: %s has terminated.\n", (int)(*root).pid, (*root).command); 
+					root = (*root).next; 
+					listCount--;
 				}
 				//pid is not root, could be interior or tail
 				else {
@@ -99,6 +122,7 @@ void checkBackgroundProcesses() {
 					//else it's an interior element
 					// before: [cur] -> [next] -> NULL
 					// after:  [cur] -----------> NULL
+					// altern: [cur] -----------> [nextnext]
 					else {
 						(*cur).next = (*(*cur).next).next;	
 					}
@@ -110,9 +134,13 @@ void checkBackgroundProcesses() {
 	}
 }
 
+/* executeCommand(char**, int*)
+*  This function takes an array of strings and an int flag.
+*  The user will enter a command on terminal input which will
+*  be interpreted here, and executed if it's a valid input, otherwise
+*  an error message will be displayed.
+*/
 int executeCommand( char** args, int* bg_flag ) {
-	
-	pid_t x;
 	pid_t child_pid;
 	int runningBinary = 0;
 	int status;//of child process
@@ -126,7 +154,6 @@ int executeCommand( char** args, int* bg_flag ) {
 			chdir(args[1]);
 		}
 		free(cwd);
-		//return 1;
 	}
 
 	else if( !strcmp( args[0], "exit") ) {
@@ -135,15 +162,11 @@ int executeCommand( char** args, int* bg_flag ) {
 
 	else if( !strcmp( args[0], "bglist") ) {
 		printList();
-		//return 1;
 	}
 
 	else { //otherwise were executing a binary
 		runningBinary = 1;
 		child_pid = fork();
-
-
-
 		/*CHILD execution*/
 		if ( child_pid == 0 ) {
 			execvp( args[0], args );
@@ -160,16 +183,16 @@ int executeCommand( char** args, int* bg_flag ) {
 	}
 			
 	//Add child process to bg list only if bg_flag true
-	if( (*bg_flag) && runningBinary ) addToList(args[0],child_pid);
+	if( (*bg_flag) && runningBinary ) {
+		if( NULL == args[1] ) addToList(args[0], NULL, child_pid);
+		else addToList(args[0], args[1], child_pid);
+	}
 
 	//NON-BG PROCESSES (will block so we don't need to add to BG list)
 	else if (runningBinary) {
 		do {
 			//else we're running a normal process where we just wait
-			x = waitpid(child_pid, &status, WUNTRACED);
-			//printf("x (nonBG) is: %d\n",(int)x);
-			//printf("WUNTRACED: %d\n", (int)WUNTRACED);
-			//printf("waitpid returned: %d\n", (int)w);
+			waitpid(child_pid, &status, WUNTRACED);
 		} while( (!WIFEXITED(status)) && !WIFSIGNALED(status));	
 	}
 	return 1;
@@ -278,33 +301,36 @@ char* getWorkingDirectory( int returnDirectoryOnly ) {
 	return finalPrompt;	
 }
 
-node makeNode() {
-	node temp;
-	temp = (node)malloc(sizeof(struct LinkedList));
-	(*temp).next = NULL;
-	return temp;
-}
+// node makeNode() {
+// 	node temp;
+// 	temp = (node)malloc(sizeof(struct LinkedList));
+// 	(*temp).next = NULL;
+// 	return temp;
+// }
 
-void addToList( char* command, pid_t pid ) {
+void addToList( char* command, char* arg1, pid_t pid ) {
 
 	node temp;
 	node cur;
-	temp = makeNode();
-	(*temp).pid = pid;
-	//snprintf( (*temp).command, 1024, command );
-	memcpy((*temp).command, command, strlen(command)+1);
+
+	temp = (node)malloc(sizeof(struct LinkedList));
 	(*temp).next = NULL;
+	(*temp).pid = pid;
+	memcpy((*temp).command, command, strlen(command)+1);
+	if( NULL != arg1 ) memcpy((*temp).arg1, arg1, strlen(command)+1);
+	
+	//(*temp).next = NULL; //might need this if errors
 
 	if( root == NULL ) {
 		listCount++;
 		root = temp;
-		printf( "was empty, bgList+=%d\n", (int)(*root).pid);
+		//printf( "was empty, bgList+=%d\n", (int)(*root).pid);
 	}
 	else {
 		listCount++;
 		cur = root;
 		while( (*cur).next != NULL ) {
-			printf( "bgList+=%d\n", (int)(*cur).pid);
+			//printf( "bgList+=%d\n", (int)(*cur).pid);
 			cur = (*cur).next;
 		}
 		(*cur).next = temp;
@@ -312,24 +338,26 @@ void addToList( char* command, pid_t pid ) {
 }
 
 void printList() {
-	if( listCount == 0 ) { 
-		//printf( "listcount 0\n");
-		printf( "listEmpty\n");
+	if( listCount == 1 ) { 
+		if( strlen( (*root).arg1) != 0 )
+			printf( "%d: %s %s\n", (int)(*root).pid, (*root).command, (*root).arg1 );
+		else
+			printf( "%d: %s\n", (int)(*root).pid, (*root).command ) ;
 	}
-	else if( listCount == 1 ) { 
-		//printf( "listcount 1\n");
-		printf( "%d: %s\n", (int)(*root).pid, (*root).command );
-	}
-	else {
+	else if( listCount > 1 ) {
 		node cur;
 		cur = root;
-		printf( "%d: %s\n", (int)(*cur).pid, (*cur).command );
+		if( strlen( (*cur).arg1) != 0 )
+			printf( "%d: %s %s\n", (int)(*cur).pid, (*cur).command, (*cur).arg1 );
+		else
+			printf( "%d: %s\n", (int)(*cur).pid, (*cur).command );
 		while( (*cur).next != NULL ) {
-				//printf( "listcount %d\n",listCount);
-				
 				cur = (*cur).next;
-				//printf( "bgList->%d\n", (int)(*cur).pid);
-				printf( "%d: %s\n", (int)(*cur).pid, (*cur).command );
+				if( strlen( (*cur).arg1) != 0 )
+					printf( "%d: %s %s\n", (int)(*cur).pid, (*cur).command, (*cur).arg1 );
+				else
+					printf( "%d: %s\n", (int)(*cur).pid, (*cur).command );
 			}	
 	}
+	printf( "Total background jobs: %d\n", listCount );
 }
