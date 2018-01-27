@@ -66,6 +66,8 @@ int main()
 }
 
 int executeCommand( char** args, int* bg_flag ) {
+	pid_t w;
+	pid_t x;
 	/*Want to run chdir() since cd is not in bin*/
 	if( !strcmp( args[0], "cd" ) ) { //default cd with no args is go home
 		char* cwd = getWorkingDirectory(1);
@@ -95,6 +97,8 @@ int executeCommand( char** args, int* bg_flag ) {
 		int status;//of child process
 		child_pid = fork();
 
+
+
 		/*CHILD execution*/
 		if ( child_pid == 0 ) {
 			execvp( args[0], args );
@@ -108,29 +112,53 @@ int executeCommand( char** args, int* bg_flag ) {
 			printf("Failed to fork\n"); 
 			exit(EXIT_FAILURE);
 		}
+
+
 		/*PARENT execution*/
 		else {
 			
-			//TODO Fix this - figure out background process loop check
-			//Only add to bg processes if bg is used
-			//&&If we're running a background process...
-			pid_t w = waitpid(0, &status, WNOHANG);
-			if( (*bg_flag) ) { 
-				addToList(args[0],child_pid);
-				printList();
-				while( w > 0 ) {
-					w = waitpid(0, &status, WNOHANG);
-				}
-			}
+			//Add child process to bg list only if bg_flag true
+			if( (*bg_flag) ) addToList(args[0],child_pid);
+
+			//NON-BG PROCESSES (will block so we don't need to add to BG list)
 			else {
 				do {
 					//else we're running a normal process where we just wait
-					w = waitpid(child_pid, &status, WUNTRACED);
+					x = waitpid(child_pid, &status, WUNTRACED);
+					printf("x (nonBG) is: %d\n",(int)x);
 						//printf("WUNTRACED: %d\n", (int)WUNTRACED);
 						//printf("waitpid returned: %d\n", (int)w);
 				} while( (!WIFEXITED(status)) && !WIFSIGNALED(status));	
 			}
-		}
+
+			//BACKGROUND PROCESSES (loop checking to remove PID's if terminated)
+			if( listCount > 0 ) { //If we had added a "bg" flag to command list count will be > 0
+				w = waitpid(0, &status, WNOHANG); //Waitpid for termination of bg running child
+				printf("w (BG execc) is: %d\n",(int)w);
+				while( w > 0 ) {
+					if( w > 0 ) {
+						if ( (*root).pid == w ) { 
+							printf("rootPID: %d TERMINATED\n", (int)(*root).pid); 
+							root = (*root).next; listCount--;
+						}
+						else {
+							node cur;
+							cur = root;
+							while( (*cur).next != NULL && (*cur).pid != w) {
+								cur = (*cur).next;
+							}
+							printf("rootPID: %d TERMINATED\n", (int)(*cur).pid);
+							(*cur).next = (*(*cur).next).next;
+							listCount--;
+						}
+					}
+					w = waitpid(0, &status, WNOHANG);	
+				}
+			}
+
+		} //END PARENT
+
+
 		return 1;
 	}
 }
@@ -251,19 +279,20 @@ void addToList( char* command, pid_t pid ) {
 	node cur;
 	temp = makeNode();
 	(*temp).pid = pid;
-	snprintf( (*temp).command, 1024, "ls -lah" );
+	//snprintf( (*temp).command, 1024, command );
+	memcpy((*temp).command, command, strlen(command)+1);
 	(*temp).next = NULL;
 
 	if( root == NULL ) {
 		listCount++;
 		root = temp;
-		//printf( "was empty, bgList->%d\n", (int)(*root).pid);
+		printf( "was empty, bgList+=%d\n", (int)(*root).pid);
 	}
 	else {
 		listCount++;
 		cur = root;
 		while( (*cur).next != NULL ) {
-			//printf( "bgList->%d\n", (int)(*cur).pid);
+			printf( "bgList+=%d\n", (int)(*cur).pid);
 			cur = (*cur).next;
 		}
 		(*cur).next = temp;
@@ -277,17 +306,18 @@ void printList() {
 	}
 	else if( listCount == 1 ) { 
 		//printf( "listcount 1\n");
-		printf( "bgList->%d\n", (int)(*root).pid); 
+		printf( "%d: %s\n", (int)(*root).pid, (*root).command );
 	}
 	else {
 		node cur;
 		cur = root;
-		printf( "bgList->%d\n", (int)(*cur).pid);
+		printf( "%d: %s\n", (int)(*cur).pid, (*cur).command );
 		while( (*cur).next != NULL ) {
 				//printf( "listcount %d\n",listCount);
 				
 				cur = (*cur).next;
-				printf( "bgList->%d\n", (int)(*cur).pid);
+				//printf( "bgList->%d\n", (int)(*cur).pid);
+				printf( "%d: %s\n", (int)(*cur).pid, (*cur).command );
 			}	
 	}
 }
